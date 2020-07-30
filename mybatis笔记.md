@@ -1,3 +1,33 @@
+- [Mybatis概述](#mybatis概述)
+- [MyBatis环境搭建](#mybatis环境搭建)
+  - [创建maven项目添加依赖坐标](#创建maven项目添加依赖坐标)
+  - [创建实体类](#创建实体类)
+    - [创建User表](#创建user表)
+    - [创建实体类User](#创建实体类user)
+    - [创建接口IUserDao](#创建接口iuserdao)
+  - [创建配置文件](#创建配置文件)
+    - [MyBatis主配置文件(一般起名SqlMapConfig.xml)](#mybatis主配置文件一般起名sqlmapconfigxml)
+  - [测试运行环境](#测试运行环境)
+  - [入门示例使用的设计模式](#入门示例使用的设计模式)
+    - [构建者模式](#构建者模式)
+    - [工厂模式](#工厂模式)
+    - [代理模式](#代理模式)
+  - [Mybatis的CRUD](#mybatis的crud)
+    - [添加/查询用户](#添加查询用户)
+    - [删除用户](#删除用户)
+    - [更新用户](#更新用户)
+    - [模糊查询](#模糊查询)
+    - [获取新增记录的id](#获取新增记录的id)
+    - [传递pojo对象作为参数](#传递pojo对象作为参数)
+    - [属性和列名不一致的解决方案](#属性和列名不一致的解决方案)
+  - [自己编写MyBatis的实现类](#自己编写mybatis的实现类)
+  - [Mybatis数据源](#mybatis数据源)
+  - [Mybatis的事务](#mybatis的事务)
+  - [多表查询](#多表查询)
+    - [一对一查询](#一对一查询)
+
+
+
 # Mybatis概述
 持久层框架
 封装JDBC,只关注Sql本身,不关注驱动注册、创建连接等重复过程。
@@ -31,6 +61,11 @@ orm：Object Relational Mapping 对象关系映射
 >step4:可选的,添加log4j,junit
 
 ```xml
+ <dependency>
+                <groupId>mysql</groupId>
+                <artifactId>mysql-connector-java</artifactId>
+                <version>8.0.21</version>
+            </dependency>
 <dependency>
     <groupId>log4j</groupId>
     <artifactId>log4j</artifactId>
@@ -41,6 +76,22 @@ orm：Object Relational Mapping 对象关系映射
         <version>4.13</version>
         <scope>test</scope>
 </dependency>
+
+<!-- 指定jdk版本 -->
+<build>
+  		<plugins>
+  			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				
+				<configuration>
+					<source>1.8</source>
+	<target>1.8</target>
+				</configuration>
+			</plugin>
+  		</plugins>
+  </build>
+
 ```
 ## 创建实体类
 
@@ -346,3 +397,350 @@ sqlSession.getMapper(IUserDao.class);
 
 
 
+## Mybatis的CRUD
+
+1. 在IUserDao中增加接口方法
+2. 在IUserDao.xml中增加对应的sql语句
+### 添加/查询用户
+
+> 接口添加抽象方法
+```Java
+public interface IUserDao {
+    /**
+     * 查询所有数据
+     * @return
+     */
+    public List<User> findAll();
+
+    /**
+     * 添加用户
+     * @param user
+     */
+    public void addUser(User user);
+}
+```
+
+> mapper映射文件添加`<insert>`标签
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.study.dao.IUserDao">
+    <select id="findAll" resultType="com.study.domain.User">
+       select * from user
+   </select>
+
+    <insert id="addUser" parameterType="com.study.domain.User">
+        insert into user(username,birthday,sex,address) values(#{username},#{birthday},#{sex},#{address})
+    </insert>
+</mapper>
+```
+
+> 测试addUser方法
+
+```Java
+@org.junit.Test
+public void testAddUser() throws IOException {
+    InputStream in = Resources.getResourceAsStream("SqlMapConfig.xml");
+    SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(in);
+    SqlSession session = factory.openSession();
+    IUserDao dao = session.getMapper(IUserDao.class);
+    User user = new User();
+    user.setUsername("欧阳锋");
+    user.setAddress("西域白驼山");
+    LocalDate localDate = LocalDate.of(1888, 8, 8);
+    ZonedDateTime zonedDateTime = localDate.atStartOfDay(ZoneId.systemDefault());
+    user.setBirthday(Date.from(zonedDateTime.toInstant()));
+    user.setSex("1");
+    dao.addUser(user);
+    session.commit();
+    session.close();
+    in.close();
+}
+```    
+
+### 删除用户
+
+按id删除用户,id是基本类型,对于基本类型占位符可以随意写,不需要与实际对象有对应。
+parameterType只要可以表示类型可以随便写,比如string,String,java.lang.String都可以
+
+定义接口删除方法
+```java
+public void delUser(Integer id);
+```
+
+mapper文件中的删除方法
+```xml
+<delete id="delUser"  parameterType="java.lang.Integer">
+        delete from user where id=#{uid}
+</delete>
+```
+
+测试方法
+
+```Java
+private InputStream in;
+private SqlSessionFactory factory;
+private SqlSession session;
+private IUserDao dao;
+
+@Before
+public void init() throws IOException {
+    in = Resources.getResourceAsStream("SqlMapConfig.xml");
+    factory = new SqlSessionFactoryBuilder().build(in);
+    session = factory.openSession();
+    dao = session.getMapper(IUserDao.class);
+}
+
+@After
+public void destroy() throws IOException {
+    session.commit();
+    session.close();
+    in.close();
+}
+
+@org.junit.Test
+public void testDelUser() {
+    Integer id = 12;
+    dao.delUser(id);
+}
+```
+
+### 更新用户
+
+```Java
+public void updateUser(User user);
+
+public User findByName(String uname);
+```
+
+mapper映射文件:
+```xml
+<select id="findByName" resultType="com.study.domain.User" parameterType="java.lang.String">
+    select * from user where username=#{username}
+</select>
+<delete id="updateUser"  parameterType="com.study.domain.User">
+    update user set username=#{username},sex=#{sex},birthday=#{birthday},address=#{address} where id=#{id};
+</delete>
+```
+
+测试文件:
+```Java
+@org.junit.Test
+public void testFindByName() {
+    String  name = "郭靖";
+    User user = dao.findByName(name);
+    System.out.println(user.toString());
+}
+
+@org.junit.Test
+public void testUpdateUser() {
+    String uname = "郭靖";
+    User user1 = dao.findByName(uname);
+    user1.setId(user1.getId());
+    user1.setSex("男");
+    dao.updateUser(user1);
+}
+```
+
+### 模糊查询
+
+```xml
+<select id="findByNameStr" resultType="com.study.domain.User" parameterType="string">
+    select * from user where username like #{name}
+</select>
+```
+
+```java
+@org.junit.Test
+public void testFindByNameStr() {
+    String  name = "%小%";
+    List<User> list = dao.findByNameStr(name);
+    System.out.println(list.toString());
+}
+```
+
+### 获取新增记录的id
+
+mapper使用`<selectKey>`属性获取新增的id值:
+```xml
+<insert id="saveUser" parameterType="com.study.domain.User">
+/*在新增之后获取新增记录的id值*/
+<selectKey keyProperty="id" keyColumn="id" order="AFTER" resultType="java.lang.Integer">
+    select last_insert_id();
+</selectKey>
+insert into user(username,birthday,sex,address) values(#{username},#{birthday},#{sex},#{address})
+</insert>
+```    
+
+```java
+@org.junit.Test
+public void testSaveUser() {
+    User user = new User();
+    user.setUsername("欧阳克");
+    user.setAddress("西域白驼山");
+    LocalDate localDate = LocalDate.of(1988, 8, 8);
+    ZonedDateTime zonedDateTime = localDate.atStartOfDay(ZoneId.systemDefault());
+    user.setBirthday(Date.from(zonedDateTime.toInstant()));
+    user.setSex("1");
+    int id = dao.saveUser(user);
+    System.out.println("id="+id);
+    System.out.println("id="+user.getId());
+}
+```
+
+### 传递pojo对象作为参数
+
+前边都是传递简单类型作为参数,下边使用ognl表达式传递pojo对象参数.
+
+OGNL即"对象图导航语言",通过对象的get方法获取数据,但写法上将get省略.比如获取用户名称:
+
+类写法:user.getUsername(); 
+
+OGNL写法:user.username
+
+
+1. 给参数传递QueryVo对象
+
+```java
+public class QueryVo {
+    private User user;
+    //getter和setter
+}
+```
+2. 定义查询接口
+
+```java
+public List<User> findUserBYVo(QueryVo queryVo);
+```
+3. 书写mapper实现
+
+```xml
+<select id="findUserBYVo" parameterType="com.study.domain.QueryVo" resultType="com.study.domain.User">
+    select * from user where username like #{user.username}
+</select>
+```
+4. 测试
+
+```java
+@org.junit.Test
+public void testFindUserBYVo() {
+    String  name = "%小%";
+    User user = new User();
+    user.setUsername(name);
+    QueryVo vo = new QueryVo();
+    vo.setUser(user);
+    List<User> list = dao.findUserBYVo(vo);
+    System.out.println(list.toString());
+}
+```
+
+### 属性和列名不一致的解决方案
+
+解决：
+1. 查询时给列名添加别名，使与属性名一致
+2. 配置`<resultMap>`设置属性名和列名的映射关系
+
+```xml
+<resultMap id="userMap" type="com.study.domain.User">
+    <id property="id" column="id"></id>
+    <result property="username" column="username"></result>
+    <result property="birthday" column="birthday"></result>
+    <result property="sex" column="sex"></result>
+    <result property="address" column="address"></result>
+</resultMap>
+<select id="findAll" resultMap="userMap">
+    select * from user
+</select>
+```
+这样所有的返回User的地方都可以改成resultMap形式，这样在更改字段属性后，只需要更改resultMap即可，减少了工作量。但resultMap执行效率不如别名方式。
+
+## 自己编写MyBatis的实现类
+
+1. 新建类实现接口IUserDao
+2. 在类中调用IUserDao.xml相关的mapper定义
+3. 测试
+
+```java
+private SqlSessionFactory factory;
+
+public UserDaoImpl(SqlSessionFactory factory) {
+    this.factory = factory;
+}
+@Override
+public User findByName(String uname) {
+    SqlSession session = factory.openSession();
+    User user = session.selectOne("com.study.dao.IUserDao.findByName",uname);
+    session.close();
+    return user;
+}
+@Override
+public void updateUser(User user) {
+    SqlSession sqlSession = factory.openSession();
+    sqlSession.update("com.study.dao.IUserDao.saveUser", user);
+    sqlSession.commit();
+    sqlSession.close();
+}    
+```
+
+其中的saveUser,findByName对应mapper文件中定义的id
+
+## Mybatis数据源
+
+> 数据源配置位置
+
+主配置文件SqlMapConfig.xml中的DataSource标签,type属性表示配置哪一种连接池。
+
+
+> mybatis提供3种方式的连接池（即type属性值）
+1. POOLED   使用连接池的数据源  - mybatis对应接口PooledDataSource
+2. UNPOOLED 不使用连接池的数据源 - 对应接口UnpooledDataSource
+3. JNDI 使用服务器提供的JNDI获取数据源，不同服务器获得的DataSource不一样。只有war工程使用，tomcat一般使用DHCP连接池。
+
+POOLED 传统的javax.sql.DataSource规范中的连接池，
+
+## Mybatis的事务
+
+事务的四大特性：ACID,四大隔离级别
+
+通过SqlSession的commit操作，结果调用JdbcTransaction.commit()和JdbcTransaction.rollback(),最终调用jdbc的commit和rollback
+
+## 多表查询
+mybatis中的表关系:
+- 一对多
+- 多对一 和"一对多"不一样
+- 一对一
+- 多对多
+
+`一对多`举例:
+- 一个用户多个订单=>一对多
+  - 此关系暗含一个多对一.
+- 多个订单属于一个用户=>多对一
+
+`一对一`举例:
+- 一个人只有一个身份证号
+- 一个身份证号只能属于一个人
+
+`多对多`举例:
+- 一个学生有多个老师上课
+- 一个老师给多个学生上课
+
+特例`多对一`:
+对于用户和订单是`一对多`关系,如果拿出一个订单,那么这个订单只能属于一个用户,所以可以将"一对多"当做"一对一"处理。
+
+
+
+
+从订单
+
+以用户和账户模型演示多表关系查询.
+- 用户表 user
+- 账户表 account
+
+### 一对一查询
+
+一个账户只能由一个用户使用,根据账户查询用户是一对一查询.
+
+一个用户有多个账户如果从用户查询账户,
